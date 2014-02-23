@@ -131,7 +131,7 @@ namespace hbx_patch
 				if (Convert.ToInt64(fd.timestamp) > Convert.ToInt64(currentts))
 					currentts = fd.timestamp;
 				autoEvent.WaitOne();
-				Decompress(new System.IO.FileInfo(fd.path), fd.path);
+				Decompress(new System.IO.FileInfo(fd.path + ".gz"), fd.path);
 			}
 			IStaticText(label1, "");
 			System.IO.File.WriteAllText(@".\ts", currentts);
