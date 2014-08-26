@@ -16,7 +16,7 @@ namespace hbx_patch_generator
 		List<FileData> filelist = new List<FileData>();
 		List<string> datalist = new List<string>();
 		List<string> hashgenlist = new List<string>();
-		string timestamp = "";
+		DateTime timestamp;
 		public Form1()
 		{
 			InitializeComponent();
@@ -99,9 +99,10 @@ namespace hbx_patch_generator
 				FileData fd = new FileData();
 				fd.path = entries[0];
 				fd.name = entries[1];
-				fd.md5 = entries[2];
-				fd.timestamp = entries[3];
-				fd.Checked = true;
+                fd.md5 = entries[2];
+				fd.timestamp = new DateTime(Convert.ToInt64(entries[3]));
+                fd.filesize = Convert.ToDouble(entries[4]);
+                fd.Checked = true;
 				filelist.Add(fd);
 			}
 		}
@@ -114,9 +115,9 @@ namespace hbx_patch_generator
 		private void button1_Click(object sender, EventArgs e)
 		{
 			//save
-			long ticks = DateTime.UtcNow.Ticks - DateTime.Parse("01/01/1970 00:00:00").Ticks;
-			ticks /= 10000000; //Convert windows ticks to seconds
-			timestamp = ticks.ToString();
+// 			long ticks = DateTime.UtcNow.Ticks - DateTime.Parse("01/01/1970 00:00:00").Ticks;
+// 			ticks /= 10000000; //Convert windows ticks to seconds
+// 			timestamp = ticks.ToString();
 
 			List<string> linewrite = new List<string>();
 			hashgenlist.Clear();
@@ -125,19 +126,21 @@ namespace hbx_patch_generator
 			//generate hash
 			foreach (FileData fd in filelist)
 			{
-				string temp = "";
+                string temp = "";
 
-				temp = fd.path + "|" + fd.md5 + "|" + fd.timestamp;
+                DateTime writetime = File.GetLastWriteTimeUtc(fd.path);
+                fd.filesize = Compress(new FileInfo(fd.path), fd.path);
+                File.SetLastWriteTimeUtc("D:/hbx/" + fd.path + ".gz", writetime);
+                temp = fd.path + "|" + fd.md5 + "|" + writetime.Ticks + "|" + fd.filesize;
 				hashgenlist.Add(temp);
-				temp = fd.path + "|" + fd.name + "|" + fd.md5 + "|" + fd.timestamp;
+                temp = fd.path + "|" + fd.name + "|" + fd.md5 + "|" + writetime.Ticks + "|" + fd.filesize;
 				linewrite.Add(temp);
-				Compress(new FileInfo(fd.path), fd.path);
 			}
 			System.IO.File.WriteAllLines(@".\datalist.txt", linewrite.ToArray());
 			System.IO.File.WriteAllLines(@".\update.lst", hashgenlist.ToArray());
 		}
 
-		public void Compress(FileInfo fi, string path)
+		public Int64 Compress(FileInfo fi, string path)
 		{
 			// Get the stream of the source file. 
 			using (FileStream inFile = fi.OpenRead())
@@ -161,10 +164,12 @@ namespace hbx_patch_generator
 							}
 							Console.WriteLine("Compressed {0} from {1} to {2} bytes.",
 								fi.Name, fi.Length.ToString(), outFile.Length.ToString());
+                            return outFile.Length;
 						}
 					}
 				}
 			}
+            return 0;
 		}
 
 		private void DumpTrees(TreeNodeCollection masternode)
@@ -177,6 +182,46 @@ namespace hbx_patch_generator
 				{
 					if (node.Checked && node.Nodes.Count == 0)
 					{
+                        //Try doing timestamp first, then if it doesn't match, do md5
+
+                        var lastwritetime = File.GetLastWriteTimeUtc(node.Text);
+                        if (filelist.Exists(x => (x.path == node.Text)))
+                        {
+                            FileData tempfd = filelist.Find(x => (x.path == node.Text));
+                            if (tempfd.timestamp != lastwritetime)
+                            {
+                                using (var md5 = MD5.Create())
+                                {
+                                    using (var stream = File.OpenRead(node.Text))
+                                    {
+                                        string hash = BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "").ToLower();
+                                        tempfd.updatedthispass = true;
+                                        tempfd.md5 = hash;
+                                        tempfd.timestamp = File.GetLastWriteTimeUtc(node.Text);
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            using (var md5 = MD5.Create())
+                            {
+                                using (var stream = File.OpenRead(node.Text))
+                                {
+                                    string hash = BitConverter.ToString(md5.ComputeHash(stream)).Replace("-", "").ToLower();
+                                    FileData fd = new FileData();
+                                    fd.md5 = hash;
+                                    fd.timestamp = File.GetLastWriteTimeUtc(node.Text);
+                                    fd.path = node.Text;
+                                    fd.name = node.Name;
+                                    fd.updatedthispass = true;
+                                    filelist.Add(fd); 
+                                }
+                            }
+
+                        }
+
+/*
 						//add hash
 						using (var md5 = MD5.Create())
 						{
@@ -189,21 +234,23 @@ namespace hbx_patch_generator
 									if (tempfd.md5 != hash)
 									{
 										tempfd.updatedthispass = true;
-										tempfd.timestamp = timestamp;
+                                        tempfd.timestamp = File.GetLastWriteTimeUtc(node.Text);
 									}
 								}
 								else
 								{
 									FileData fd = new FileData();
 									fd.md5 = hash;
-									fd.timestamp = timestamp;
+                                    fd.timestamp = File.GetLastWriteTimeUtc(node.Text);
 									fd.path = node.Text;
 									fd.name = node.Name;
 									fd.updatedthispass = true;
 									filelist.Add(fd);
 								}
 							}
-						}
+						}*/
+
+
 					}
 				}
 			}
@@ -224,10 +271,11 @@ namespace hbx_patch_generator
 	}
 	public class FileData
 	{
-		public string timestamp = "";
+		public DateTime timestamp;
 		public string md5 = "";
 		public string name = "";
-		public string path = "";
+        public string path = "";
+        public double filesize = 0;
 		public bool updatedthispass = false;
 		public bool Checked = false;
 		public FileData()
